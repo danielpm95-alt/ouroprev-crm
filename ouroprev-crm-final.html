@@ -440,7 +440,7 @@
         <div style="display:grid;grid-template-columns:280px 1fr;gap:20px;align-items:start">
           <div class="table-wrap" style="max-height:70vh;overflow-y:auto">
             <div class="table-header"><div class="table-header-title">Clientes</div></div>
-            <div id="hist-client-list" style="padding:8px;display:flex;flex-direction:column;gap:4px"></div>
+            <div style="padding:8px 8px 4px"><input class="search-input" type="text" placeholder="🔍 Buscar contato..." id="hist-search" oninput="renderHistClientList()" style="width:100%"></div><div id="hist-client-list" style="padding:4px 8px 8px;display:flex;flex-direction:column;gap:4px"></div>
           </div>
           <div class="table-wrap">
             <div class="table-header" style="justify-content:space-between">
@@ -721,7 +721,7 @@
   <div class="modal" style="width:460px">
     <div class="modal-header"><div class="modal-title">Registrar Contato</div><button class="modal-close" onclick="closeModal('modal-history')">×</button></div>
     <div class="modal-body">
-      <div class="form-row"><div class="form-group"><label class="form-label">Tipo</label><select class="form-select" id="h-tipo"><option value="ligacao">📞 Ligação</option><option value="whatsapp">💬 WhatsApp</option><option value="consulta">🏢 Consulta Presencial</option><option value="doc">📄 Envio de Documentos</option></select></div><div class="form-group"><label class="form-label">Data</label><input class="form-input" id="h-data" type="date"></div></div>
+      <div class="form-row"><div class="form-group"><label class="form-label">Tipo</label><select class="form-select" id="h-tipo"><option value="ligacao">📞 Ligação</option><option value="whatsapp">💬 WhatsApp</option><option value="instagram">📸 Instagram</option><option value="consulta">🏢 Consulta Presencial</option><option value="doc">📄 Envio de Documentos</option></select></div><div class="form-group"><label class="form-label">Data</label><input class="form-input" id="h-data" type="date"></div></div>
       <div class="form-row full"><div class="form-group"><label class="form-label">Resumo *</label><input class="form-input" id="h-titulo" placeholder="Ex: Explicou situação de trabalho rural"></div></div>
       <div class="form-row full"><div class="form-group"><label class="form-label">Detalhes</label><textarea class="form-textarea" id="h-desc"></textarea></div></div>
     </div>
