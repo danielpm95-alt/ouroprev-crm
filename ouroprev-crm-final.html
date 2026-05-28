@@ -1368,6 +1368,15 @@ async function toggleDoc(leadId, key) {
 
 function switchDetailTab(tab) { detailTab = tab; renderClientDetail(); }
 
+async function deleteHistoryItem(leadId, histId) {
+  if (!confirm('Excluir este registro?')) return;
+  try {
+    await api(`historico?id=eq.${histId}`, {method:'DELETE'});
+    if (state.history[leadId]) state.history[leadId] = state.history[leadId].filter(h => h.id !== histId);
+    showToast('Excluído ✓', 'ok', 2000);
+    renderClientDetail();
+  } catch(e) { showToast('Erro ao excluir', 'error', 3000); }
+}
 async function deleteCurrentClient() {
   if (!confirm('Excluir este cliente permanentemente?')) return;
   try {
