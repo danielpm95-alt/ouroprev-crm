@@ -1100,7 +1100,7 @@ function renderHistContent(id) {
   const div = document.getElementById('hist-content');
   const tIcon = {ligacao:'📞',whatsapp:'💬',consulta:'🏢',doc:'📄'};
   const tLabel = {ligacao:'Ligação',whatsapp:'WhatsApp',consulta:'Consulta Presencial',doc:'Documentos',email:'E-mail'};
-  div.innerHTML = items.length ? `<div class="history-list">${items.map(h=>`<div class="history-item"><div class="hi-dot ${h.tipo}"></div><div class="hi-content"><div class="hi-title">${tIcon[h.tipo]||''} ${h.titulo}</div>${h.descricao?`<div class="hi-desc">${h.descricao}</div>`:''}<div class="hi-meta">${tLabel[h.tipo]||h.tipo} · ${fmt(h.date)}</div></div></div>`).join('')}</div>` : `<div class="empty-state"><div class="big">📋</div><p>Nenhum contato registrado</p></div>`;
+  div.innerHTML = items.length ? `<div class="history-list">${items.map(h=>`<div class="history-item"><div class="hi-dot ${h.tipo}"></div><div class="hi-content"><div class="hi-title">${tIcon[h.tipo]||''} ${h.titulo}</div>${h.descricao?`<div class="hi-desc">${h.descricao}</div>`:''}<div class="hi-meta">${tLabel[h.tipo]||h.tipo} · ${fmt(h.date)}</div></div><button onclick="deleteHistoryItem('${id}','${h.id}')" style="background:none;border:none;cursor:pointer;color:var(--text-dim);font-size:16px;padding:0 4px;line-height:1;align-self:flex-start;opacity:0.5;transition:opacity .2s" onmouseover="this.style.opacity=1;this.style.color='#e53e3e'" onmouseout="this.style.opacity=0.5;this.style.color='var(--text-dim)'" title="Excluir registro">×</button></div>`).join('')}</div>` : `<div class="empty-state"><div class="big">📋</div><p>Nenhum contato registrado</p></div>`;
 }
 
 function openAddHistoryModal() {
@@ -1352,7 +1352,7 @@ ${detailTab==='tasks'?'active':''}" onclick="switchDetailTab('tasks')">Tarefas (
       ${detailTab==='docs'?`<div style="margin-bottom:10px;font-size:12px;color:var(--text-dim)">Documentos para <strong style="color:var(--text)">${l.beneficio||'este benefício'}</strong></div>
         <div class="doc-checklist">${docs.map((doc,i)=>{const k='doc_'+i;const chk=docsState[k];return`<div class="doc-item ${chk?'checked':''}" onclick="toggleDoc('${l.id}','${k}')"><div class="doc-check">${chk?'✓':''}</div><span>${doc}</span></div>`;}).join('')}</div>
         <div style="margin-top:12px;font-size:11px;color:var(--text-dim)">${Object.values(docsState).filter(Boolean).length}/${docs.length} recebidos</div>`:''}
-      ${detailTab==='hist'?hist.length?`<div class="history-list">${[...hist].sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map(h=>`<div class="history-item"><div class="hi-dot ${h.tipo}"></div><div class="hi-content"><div class="hi-title">${tIcon[h.tipo]||''} ${h.titulo}</div>${h.descricao?`<div class="hi-desc">${h.descricao}</div>`:''}<div class="hi-meta">${tLabel[h.tipo]||h.tipo} · ${fmt(h.date)}</div></div></div>`).join('')}</div>`:`<div class="empty-state"><div class="big">📋</div><p>Nenhum contato registrado</p></div>`:''}
+      ${detailTab==='hist'?hist.length?`<div class="history-list">${[...hist].sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map(h=>`<div class="history-item"><div class="hi-dot ${h.tipo}"></div><div class="hi-content"><div class="hi-title">${tIcon[h.tipo]||''} ${h.titulo}</div>${h.descricao?`<div class="hi-desc">${h.descricao}</div>`:''}<div class="hi-meta">${tLabel[h.tipo]||h.tipo} · ${fmt(h.date)}</div></div><button onclick="deleteHistoryItem('${l.id}','${h.id}')" style="background:none;border:none;cursor:pointer;color:var(--text-dim);font-size:16px;padding:0 4px;line-height:1;align-self:flex-start;opacity:0.5" title="Excluir registro">×</button></div>`).join('')}</div>`:`<div class="empty-state"><div class="big">📋</div><p>Nenhum contato registrado</p></div>`:''}
       ${detailTab==='tasks'?tasks.length?`<div class="task-list">${tasks.map(t=>`<div class="task-item ${t.done?'done':''}"><div class="task-cb ${t.done?'checked':''}" onclick="toggleTask('${t.id}');renderClientDetail()">${t.done?'<svg width="10" height="8" viewBox="0 0 10 8"><path d="M1 4l3 3 5-6" stroke="var(--navy-dark)" stroke-width="2" fill="none" stroke-linecap="round"/></svg>':''}</div><div style="flex:1"><div class="task-title">${t.titulo}</div></div>${t.date?`<div class="task-due ${dueClass(t.date)}">${fmt(t.date)}</div>`:''}</div>`).join('')}</div>`:`<div class="empty-state"><div class="big">✅</div><p>Nenhuma tarefa</p></div>`:''}
     </div>`;
 }
@@ -1369,14 +1369,17 @@ async function toggleDoc(leadId, key) {
 function switchDetailTab(tab) { detailTab = tab; renderClientDetail(); }
 
 async function deleteHistoryItem(leadId, histId) {
-  if (!confirm('Excluir este registro?')) return;
+  if (!confirm('Excluir este registro do histórico?')) return;
   try {
     await api(`historico?id=eq.${histId}`, {method:'DELETE'});
-    if (state.history[leadId]) state.history[leadId] = state.history[leadId].filter(h => h.id !== histId);
-    showToast('Excluído ✓', 'ok', 2000);
+    if (state.history[leadId]) {
+      state.history[leadId] = state.history[leadId].filter(h => h.id !== histId);
+    }
+    showToast('Registro excluído ✓', 'ok', 2000);
     renderClientDetail();
-  } catch(e) { showToast('Erro ao excluir', 'error', 3000); }
+  } catch(e) { showToast('Erro ao excluir registro', 'error', 3000); }
 }
+
 async function deleteCurrentClient() {
   if (!confirm('Excluir este cliente permanentemente?')) return;
   try {
