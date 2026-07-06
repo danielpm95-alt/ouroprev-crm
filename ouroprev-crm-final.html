@@ -371,6 +371,8 @@ body.capturing #scripts-protected{filter:blur(12px) brightness(0.3)!important;}
       <div class="nav-item admin-only" onclick="navigate('orientacoes')"><span class="icon">📌</span> Orientações</div>
       <div class="nav-item admin-only" onclick="navigate('importar')"><span class="icon">⬆️</span> Importar</div>
       <div class="nav-item" onclick="navigate('campanhas')"><span class="icon">📣</span> Campanhas</div>
+      <div class="nav-item" onclick="navigate('processos')"><span class="icon">💼</span> Processos</div>
+      <div class="nav-item admin-only" onclick="navigate('financeiro')"><span class="icon">💰</span> Financeiro</div>
     </nav>
     <div class="sidebar-footer">
       <div>Ouro Preto, MG</div>
@@ -877,6 +879,19 @@ body.capturing #scripts-protected{filter:blur(12px) brightness(0.3)!important;}
   </div>
 </div>
 
+
+<div id="view-processos" class="view">
+  <div style="display:flex;gap:10px;margin-bottom:16px;align-items:center;flex-wrap:wrap">
+    <input class="search-input" id="proc-search" placeholder="Buscar por cliente..." oninput="renderProcessos()">
+    <div style="flex:1"></div>
+    <button class="btn btn-primary" onclick="openConverterModal()">+ Abrir Processo (lead fechado)</button>
+  </div>
+  <div id="proc-list"></div>
+</div>
+<div id="view-financeiro" class="view">
+  <div id="fin-content"></div>
+</div>
+
 <script>
 // ═══════════════════════════════════════════════
 // CONFIGURAÇÃO SUPABASE
@@ -981,6 +996,9 @@ async function loadAll() {
       state.history[h.lead_id].push(h);
     });
     state.orientacoes = orientacoes || [];
+    state.processos  = await api('processos?select=*&order=criado_em.desc').catch(()=>[]);
+    state.titulos    = await api('titulos?select=*&order=criado_em.desc').catch(()=>[]);
+    state.andamentos = await api('andamentos?select=*&order=criado_em.desc').catch(()=>[]);
     showToast('Sincronizado ✓', 'ok', 2000);
     updateLastSync();
   } catch(e) {
@@ -1009,7 +1027,7 @@ navigate = function(view) {
   state.currentView = view;
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
   document.querySelectorAll('.view').forEach(el => el.classList.remove('active'));
-  const titles = { dashboard:'Dashboard', leads:'Leads & Clientes', pipeline:'Pipeline', historico:'Histórico de Contatos', tarefas:'Tarefas', calculadoras:'Calculadoras', orientacoes:'Orientações para Equipe', importar:'Importar Contatos' };
+  const titles = { dashboard:'Dashboard', processos:'Processos', financeiro:'Financeiro', leads:'Leads & Clientes', pipeline:'Pipeline', historico:'Histórico de Contatos', tarefas:'Tarefas', calculadoras:'Calculadoras', orientacoes:'Orientações para Equipe', importar:'Importar Contatos' };
   document.getElementById('topbar-title').textContent = titles[view] || view;
   document.querySelectorAll('.nav-item').forEach(el => { if (el.getAttribute('onclick')?.includes(`'${view}'`)) el.classList.add('active'); });
   document.getElementById('view-'+view)?.classList.add('active');
@@ -1025,6 +1043,8 @@ function renderView() {
   if (v === 'historico') renderHistorico();
   if (v === 'orientacoes') renderOrientacoes();
   if (v === 'scripts') renderScriptsPage();
+  if (v === 'processos') renderProcessos();
+  if (v === 'financeiro') renderFinanceiro();
 }
 
 // ═══════════════════════════════════════════════
@@ -2313,6 +2333,105 @@ function loadCampanhasLocal() {
     if (view === 'campanhas') { setTimeout(loadCampanhas, 100); }
   };
 })();
+
+
+// ═══════════════════════════════════════════════
+// FUSÃO — CAMADA DE OPERAÇÃO (Processos + Financeiro)
+// Requer as tabelas criadas pela migração de fusão.
+// ═══════════════════════════════════════════════
+const esc = s => String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const money = n => 'R$ ' + (Number(n)||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+const leadById = id => state.leads.find(l=>String(l.id)===String(id)) || {nome:'—'};
+const daysTo = iso => { if(!iso) return null; const p=String(iso).slice(0,10).split('-'); return Math.round((new Date(p[0],p[1]-1,p[2])-new Date(new Date().toDateString()))/86400000); };
+const ANDAMENTOS = ['EM ANÁLISE','AGUARDANDO DOCUMENTAÇÃO','AGUARDANDO DIREITO AO BENEFÍCIO','REQUERIMENTO PROTOCOLADO','EM EXIGÊNCIA','DEFERIDO','INDEFERIDO','EM RECURSO','CONCLUÍDO / FINALIZADO'];
+function avisoMigracao(){ return '<div class="table-wrap" style="padding:30px;text-align:center;color:var(--text-dim)"><div style="font-size:15px;color:var(--text);margin-bottom:8px">Camada de operação ainda não ativada</div>Rode a <b style="color:var(--gold)">migração de fusão</b> no SQL Editor do Supabase, depois clique em 🔄 Sincronizar.</div>'; }
+
+// ---------- PROCESSOS ----------
+let openProcId = null;
+function renderProcessos(){
+  const box = document.getElementById('proc-list'); if(!box) return;
+  if(openProcId){ renderProcDetalhe(openProcId); return; }
+  if(!state.processos){ box.innerHTML=avisoMigracao(); return; }
+  const q = (document.getElementById('proc-search')?.value||'').toLowerCase();
+  const list = state.processos.filter(p=>{ const nome=leadById(p.lead_id).nome||''; return !q||nome.toLowerCase().includes(q); });
+  box.innerHTML = '<div class="table-wrap"><div class="table-header"><div class="table-header-title">Processos · '+list.length+'</div></div>'
+    + '<table><thead><tr><th>ID</th><th>Data</th><th>Cliente</th><th>Benefício</th><th>Andamento</th></tr></thead><tbody>'
+    + (list.length ? list.map(p=>{ const l=leadById(p.lead_id); const done=p.concluido;
+        return '<tr style="cursor:pointer" onclick="openProc('+p.id+')"><td style="color:var(--text-dim)">#'+p.id+'</td><td>'+fmt(p.data_abertura)+'</td><td style="font-weight:600">'+esc(l.nome)+'</td><td style="color:var(--text-dim)">'+(p.acao_beneficio||'—')+'</td><td><span class="badge '+(done?'badge-fechado':'badge-analise')+'">'+(done?'CONCLUÍDO':(p.andamento||'—'))+'</span></td></tr>';
+      }).join('') : '<tr><td colspan="5" style="text-align:center;color:var(--text-dim);padding:34px">Nenhum processo. Converta um lead fechado para começar.</td></tr>')
+    + '</tbody></table></div>';
+}
+function openProc(id){ openProcId=id; renderProcessos(); }
+function backToProcList(){ openProcId=null; renderProcessos(); }
+function renderProcDetalhe(id){
+  const p=(state.processos||[]).find(x=>String(x.id)===String(id)); if(!p){backToProcList();return;}
+  const l=leadById(p.lead_id);
+  const tl=(state.andamentos||[]).filter(a=>String(a.processo_id)===String(id)).sort((a,b)=>(b.criado_em||'').localeCompare(a.criado_em||''));
+  const g=(lbl,val)=>'<div><div class="stat-label">'+esc(lbl)+'</div><div>'+esc(val||'—')+'</div></div>';
+  const box=document.getElementById('proc-list');
+  box.innerHTML = '<button class="btn btn-ghost btn-sm" onclick="backToProcList()">← Voltar</button>'
+    + '<div class="table-wrap" style="margin-top:12px"><div class="table-header"><div class="table-header-title">Processo #'+p.id+' · '+esc(l.nome)+'</div><button class="btn btn-ghost btn-sm" onclick="navigate(\'leads\')">Ver cliente</button></div>'
+    + '<div style="padding:18px;display:grid;grid-template-columns:repeat(3,1fr);gap:16px">'
+    + g('Interesse',p.interesse)+g('Ação / Benefício',p.acao_beneficio)+g('Nº processo',p.numero_processo)
+    + g('Consultor',p.consultor)+g('Funcionário',p.funcionario)
+    + '<div><div class="stat-label">Andamento</div><select class="filter-select" style="width:100%" onchange="setAndamento('+p.id+',this.value)">'+ANDAMENTOS.map(a=>'<option '+(a===p.andamento?'selected':'')+'>'+a+'</option>').join('')+'</select></div>'
+    + '</div></div>'
+    + '<div class="table-wrap" style="margin-top:14px"><div class="table-header"><div class="table-header-title">Timeline</div><button class="btn btn-primary btn-sm" onclick="addAndamento('+p.id+')">+ Andamento</button></div><div style="padding:16px">'
+    + (tl.length ? tl.map(a=>'<div style="border-left:2px solid var(--gold);padding:2px 0 14px 14px;margin-left:6px"><div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px"><b style="color:var(--gold)">'+esc(a.categoria||'ANDAMENTO')+'</b> · '+(a.criado_em?fmt(String(a.criado_em).slice(0,10)):'')+' · '+(a.autor||'')+'</div><div style="font-size:13px;line-height:1.6;white-space:pre-line">'+esc(a.texto)+'</div></div>').join('') : '<div style="text-align:center;color:var(--text-dim);padding:24px">Sem andamentos ainda.</div>')
+    + '</div></div>';
+}
+async function setAndamento(id,val){
+  const p=state.processos.find(x=>String(x.id)===String(id)); p.andamento=val;
+  try{ await api('processos?id=eq.'+id,{method:'PATCH',body:JSON.stringify({andamento:val,concluido:val.indexOf('CONCLU')>=0})}); showToast('Andamento atualizado ✓','ok',1800);}catch(e){showToast('Erro ao salvar','error',2500);}
+}
+async function addAndamento(id){
+  const texto=prompt('Descreva o andamento / evolução do caso:'); if(!texto) return;
+  const item={processo_id:id,categoria:'ANDAMENTO',texto:texto,autor:(currentUser&&(currentUser.nome||currentUser.role))||'',criado_em:new Date().toISOString()};
+  try{ const r=await api('andamentos',{method:'POST',body:JSON.stringify(item)}); state.andamentos=state.andamentos||[]; state.andamentos.unshift(Array.isArray(r)?r[0]:item); renderProcDetalhe(id); showToast('Andamento registrado ✓','ok',1800);}catch(e){showToast('Erro (rode a migração de fusão)','error',3500);}
+}
+
+// ---------- CONVERSÃO: lead fechado -> processo ----------
+async function openConverterModal(){
+  if(!state.processos){ showToast('Rode a migração de fusão primeiro','error',3000); return; }
+  const semProc=state.leads.filter(l=>l.status==='Fechado' && !state.processos.some(p=>String(p.lead_id)===String(l.id)));
+  if(!semProc.length){ showToast('Nenhum lead "Fechado" sem processo.','syncing',2600); return; }
+  const lista=semProc.map((l,i)=>(i+1)+'. '+l.nome+' ('+(l.beneficio||'—')+')').join('\n');
+  const pick=prompt('Qual lead fechado vira processo?\n\n'+lista+'\n\nDigite o número:');
+  const idx=parseInt(pick,10)-1; if(isNaN(idx)||!semProc[idx]) return;
+  const l=semProc[idx];
+  const item={lead_id:l.id,interesse:l.beneficio||'',acao_beneficio:l.beneficio||'',consultor:'Daniel',funcionario:((currentUser&&currentUser.role==='operador')?'Jamille':'Daniel'),andamento:'EM ANÁLISE',data_abertura:today(),criado_em:new Date().toISOString()};
+  try{
+    const r=await api('processos',{method:'POST',body:JSON.stringify(item)});
+    state.processos.unshift(Array.isArray(r)?r[0]:item);
+    await api('leads?id=eq.'+l.id,{method:'PATCH',body:JSON.stringify({is_cliente:true})}).catch(()=>{});
+    showToast('Processo aberto ✓','ok',2200); renderProcessos();
+  }catch(e){ showToast('Erro (rode a migração de fusão)','error',3500); }
+}
+
+// ---------- FINANCEIRO ----------
+function renderFinanceiro(){
+  const box=document.getElementById('fin-content'); if(!box) return;
+  if(!state.titulos){ box.innerHTML=avisoMigracao(); return; }
+  const tit=state.titulos;
+  const abertos=tit.filter(t=>(+t.valor_recebido||0)<(+t.valor||0));
+  const totV=tit.reduce((s,t)=>s+(+t.valor||0),0), totR=tit.reduce((s,t)=>s+(+t.valor_recebido||0),0);
+  const vencidos=abertos.filter(t=>daysTo(t.vencimento)<0);
+  box.innerHTML = '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px">'
+    + '<div class="stat-card"><div class="stat-label">A receber</div><div class="stat-value">'+money(totV-totR)+'</div><div class="stat-sub">'+abertos.length+' títulos abertos</div></div>'
+    + '<div class="stat-card green"><div class="stat-label">Recebido</div><div class="stat-value">'+money(totR)+'</div></div>'
+    + '<div class="stat-card orange"><div class="stat-label">Vencidos</div><div class="stat-value">'+vencidos.length+'</div><div class="stat-sub">precisam de cobrança</div></div>'
+    + '<div class="stat-card gold"><div class="stat-label">Total emitido</div><div class="stat-value">'+money(totV)+'</div></div></div>'
+    + '<div class="table-wrap"><div class="table-header"><div class="table-header-title">Títulos a Receber</div></div>'
+    + '<table><thead><tr><th>Número</th><th>Referência</th><th>Cliente</th><th>Vencimento</th><th>Valor</th><th>Resta</th><th></th></tr></thead><tbody>'
+    + (tit.length ? tit.map(t=>{ const resta=(+t.valor||0)-(+t.valor_recebido||0); const dd=daysTo(t.vencimento); const over=resta>0&&dd<0;
+        return '<tr'+(over?' style="background:rgba(224,85,85,0.08)"':'')+'><td style="color:var(--text-dim)">'+esc(t.numero||'—')+'</td><td>'+esc(t.referencia||'—')+'</td><td style="font-weight:600">'+esc(leadById(t.lead_id).nome)+'</td><td>'+fmt(t.vencimento)+'<div style="font-size:11px;color:var(--text-dim)">'+(resta<=0?'quitado':dd<0?('venceu há '+(-dd)+'d'):('vence em '+dd+'d'))+'</div></td><td>'+money(t.valor)+'</td><td style="font-weight:700">'+money(resta)+'</td><td>'+(resta>0?'<button class="btn btn-primary btn-sm" onclick="quitar(\''+t.id+'\')">Quitar</button>':'<span class="badge badge-fechado">✓ pago</span>')+'</td></tr>';
+      }).join('') : '<tr><td colspan="7" style="text-align:center;color:var(--text-dim);padding:34px">Nenhum título ainda.</td></tr>')
+    + '</tbody></table></div>';
+}
+async function quitar(id){
+  const t=state.titulos.find(x=>String(x.id)===String(id)); if(!t) return; t.valor_recebido=t.valor;
+  try{ await api('titulos?id=eq.'+id,{method:'PATCH',body:JSON.stringify({valor_recebido:t.valor})}); showToast('Título quitado ✓','ok',1800); renderFinanceiro();}catch(e){showToast('Erro ao salvar','error',2500);}
+}
 
 </script>
 </body>
