@@ -884,7 +884,7 @@ body.capturing #scripts-protected{filter:blur(12px) brightness(0.3)!important;}
   <div style="display:flex;gap:10px;margin-bottom:16px;align-items:center;flex-wrap:wrap">
     <input class="search-input" id="proc-search" placeholder="Buscar por cliente..." oninput="renderProcessos()">
     <div style="flex:1"></div>
-    <button class="btn btn-primary" onclick="openConverterModal()">+ Abrir Processo (lead fechado)</button>
+    <button class="btn btn-primary" onclick="openConverterModal()">+ Abrir Processo</button>
   </div>
   <div id="proc-list"></div>
 </div>
@@ -2358,7 +2358,7 @@ function renderProcessos(){
     + '<table><thead><tr><th>ID</th><th>Data</th><th>Cliente</th><th>Benefício</th><th>Andamento</th></tr></thead><tbody>'
     + (list.length ? list.map(p=>{ const l=leadById(p.lead_id); const done=p.concluido;
         return '<tr style="cursor:pointer" onclick="openProc('+p.id+')"><td style="color:var(--text-dim)">#'+p.id+'</td><td>'+fmt(p.data_abertura)+'</td><td style="font-weight:600">'+esc(l.nome)+'</td><td style="color:var(--text-dim)">'+(p.acao_beneficio||'—')+'</td><td><span class="badge '+(done?'badge-fechado':'badge-analise')+'">'+(done?'CONCLUÍDO':(p.andamento||'—'))+'</span></td></tr>';
-      }).join('') : '<tr><td colspan="5" style="text-align:center;color:var(--text-dim);padding:34px">Nenhum processo. Converta um lead fechado para começar.</td></tr>')
+      }).join('') : '<tr><td colspan="5" style="text-align:center;color:var(--text-dim);padding:34px">Nenhum processo. Clique em "Abrir Processo" e busque um cliente.</td></tr>')
     + '</tbody></table></div>';
 }
 function openProc(id){ openProcId=id; renderProcessos(); }
@@ -2393,18 +2393,21 @@ async function addAndamento(id){
 // ---------- CONVERSÃO: lead fechado -> processo ----------
 async function openConverterModal(){
   if(!state.processos){ showToast('Rode a migração de fusão primeiro','error',3000); return; }
-  const semProc=state.leads.filter(l=>l.status==='Fechado' && !state.processos.some(p=>String(p.lead_id)===String(l.id)));
-  if(!semProc.length){ showToast('Nenhum lead "Fechado" sem processo.','syncing',2600); return; }
-  const lista=semProc.map((l,i)=>(i+1)+'. '+l.nome+' ('+(l.beneficio||'—')+')').join('\n');
-  const pick=prompt('Qual lead fechado vira processo?\n\n'+lista+'\n\nDigite o número:');
-  const idx=parseInt(pick,10)-1; if(isNaN(idx)||!semProc[idx]) return;
-  const l=semProc[idx];
+  const termo=prompt('Abrir processo para qual cliente?\n\nDigite parte do nome:');
+  if(!termo) return;
+  const jaTem = id => state.processos.some(p=>String(p.lead_id)===String(id));
+  const matches=state.leads.filter(l=>(l.nome||'').toLowerCase().includes(termo.toLowerCase()) && !jaTem(l.id)).slice(0,15);
+  if(!matches.length){ showToast('Nenhum cliente encontrado (ou já tem processo).','syncing',2800); return; }
+  const lista=matches.map((l,i)=>(i+1)+'. '+l.nome+' ('+(l.beneficio||'sem benefício')+' · '+(l.status||'—')+')').join('\n');
+  const pick=prompt('Escolha o cliente:\n\n'+lista+'\n\nDigite o número:');
+  const idx=parseInt(pick,10)-1; if(isNaN(idx)||!matches[idx]) return;
+  const l=matches[idx];
   const item={lead_id:l.id,interesse:l.beneficio||'',acao_beneficio:l.beneficio||'',consultor:'Daniel',funcionario:((currentUser&&currentUser.role==='operador')?'Jamille':'Daniel'),andamento:'EM ANÁLISE',data_abertura:today(),criado_em:new Date().toISOString()};
   try{
     const r=await api('processos',{method:'POST',body:JSON.stringify(item)});
     state.processos.unshift(Array.isArray(r)?r[0]:item);
     await api('leads?id=eq.'+l.id,{method:'PATCH',body:JSON.stringify({is_cliente:true})}).catch(()=>{});
-    showToast('Processo aberto ✓','ok',2200); renderProcessos();
+    showToast('Processo aberto para '+l.nome+' ✓','ok',2400); renderProcessos();
   }catch(e){ showToast('Erro (rode a migração de fusão)','error',3500); }
 }
 
