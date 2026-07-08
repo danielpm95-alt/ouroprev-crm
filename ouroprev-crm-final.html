@@ -2371,7 +2371,7 @@ function renderProcDetalhe(id){
   const g=(lbl,val)=>'<div><div class="stat-label">'+esc(lbl)+'</div><div>'+esc(val||'—')+'</div></div>';
   const box=document.getElementById('proc-list');
   box.innerHTML = '<button class="btn btn-ghost btn-sm" onclick="backToProcList()">← Voltar</button>'
-    + '<div class="table-wrap" style="margin-top:12px"><div class="table-header"><div class="table-header-title">Processo #'+p.id+' · '+esc(l.nome)+'</div><button class="btn btn-ghost btn-sm" onclick="navigate(\'leads\')">Ver cliente</button></div>'
+    + '<div class="table-wrap" style="margin-top:12px"><div class="table-header"><div class="table-header-title">Processo #'+p.id+' · '+esc(l.nome)+'</div><button class="btn btn-ghost btn-sm" onclick="navigate(\'leads\')">Ver cliente</button> <button class="btn btn-danger btn-sm" onclick="excluirProcesso('+p.id+')">Excluir</button></div>'
     + '<div style="padding:18px;display:grid;grid-template-columns:repeat(3,1fr);gap:16px">'
     + g('Interesse',p.interesse)+g('Ação / Benefício',p.acao_beneficio)+g('Nº processo',p.numero_processo)
     + g('Consultor',p.consultor)+g('Funcionário',p.funcionario)
@@ -2429,7 +2429,7 @@ function renderFinanceiro(){
     + '<div class="table-wrap"><div class="table-header"><div class="table-header-title">Títulos a Receber</div><button class="btn btn-primary btn-sm" onclick="novoTitulo()">+ Novo Título</button></div>'
     + '<table><thead><tr><th>Número</th><th>Referência</th><th>Cliente</th><th>Vencimento</th><th>Valor</th><th>Resta</th><th></th></tr></thead><tbody>'
     + (tit.length ? tit.map(t=>{ const resta=(+t.valor||0)-(+t.valor_recebido||0); const dd=daysTo(t.vencimento); const over=resta>0&&dd<0;
-        return '<tr'+(over?' style="background:rgba(224,85,85,0.08)"':'')+'><td style="color:var(--text-dim)">'+esc(t.numero||'—')+'</td><td>'+esc(t.referencia||'—')+'</td><td style="font-weight:600">'+esc(leadById(t.lead_id).nome)+'</td><td>'+fmt(t.vencimento)+'<div style="font-size:11px;color:var(--text-dim)">'+(resta<=0?'quitado':dd<0?('venceu há '+(-dd)+'d'):('vence em '+dd+'d'))+'</div></td><td>'+money(t.valor)+'</td><td style="font-weight:700">'+money(resta)+'</td><td>'+(resta>0?'<button class="btn btn-primary btn-sm" onclick="quitar(\''+t.id+'\')">Quitar</button>':'<span class="badge badge-fechado">✓ pago</span>')+'</td></tr>';
+        return '<tr'+(over?' style="background:rgba(224,85,85,0.08)"':'')+'><td style="color:var(--text-dim)">'+esc(t.numero||'—')+'</td><td>'+esc(t.referencia||'—')+'</td><td style="font-weight:600">'+esc(leadById(t.lead_id).nome)+'</td><td>'+fmt(t.vencimento)+'<div style="font-size:11px;color:var(--text-dim)">'+(resta<=0?'quitado':dd<0?('venceu há '+(-dd)+'d'):('vence em '+dd+'d'))+'</div></td><td>'+money(t.valor)+'</td><td style="font-weight:700">'+money(resta)+'</td><td>'+(resta>0?'<button class="btn btn-primary btn-sm" onclick="quitar(\''+t.id+'\')">Quitar</button>':'<span class="badge badge-fechado">✓ pago</span>')+' <button class="btn btn-danger btn-sm" onclick="excluirTitulo(\''+t.id+'\')">✕</button></td></tr>';
       }).join('') : '<tr><td colspan="7" style="text-align:center;color:var(--text-dim);padding:34px">Nenhum título ainda.</td></tr>')
     + '</tbody></table></div>';
 }
@@ -2458,7 +2458,7 @@ function honSection(p){
       html+='<div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.5px;margin:12px 0 6px">Parcelas geradas</div>';
       html+=tit.slice().sort((a,b)=>String(a.vencimento||'').localeCompare(String(b.vencimento||''))).map(t=>{
         const resta=(+t.valor||0)-(+t.valor_recebido||0);
-        return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border2)"><span style="font-size:13px">'+esc(t.numero||'')+' · venc. '+fmt(t.vencimento)+'</span><span style="display:flex;gap:10px;align-items:center">'+money(t.valor)+(resta<=0?' <span class="badge badge-fechado">pago</span>':' <button class="btn btn-primary btn-sm" onclick="quitar(\''+t.id+'\')">Quitar</button>')+'</span></div>';
+        return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border2)"><span style="font-size:13px">'+esc(t.numero||'')+' · venc. '+fmt(t.vencimento)+'</span><span style="display:flex;gap:10px;align-items:center">'+money(t.valor)+(resta<=0?' <span class="badge badge-fechado">pago</span>':' <button class="btn btn-primary btn-sm" onclick="quitar(\''+t.id+'\')">Quitar</button>')+' <button class="btn btn-danger btn-sm" onclick="excluirTitulo(\''+t.id+'\')">✕</button></span></div>';
       }).join('');
       html+='<div style="display:flex;justify-content:space-between;margin-top:14px;font-weight:700"><span>Total: '+money(totalHon)+'</span><span style="color:var(--green)">Recebido: '+money(recebido)+'</span></div>';
     }
@@ -2504,6 +2504,37 @@ async function novoTitulo(){
   const vencStr=prompt('Vencimento (dd/mm/aaaa):\n(vazio = hoje)',''); const d=parseDateBR(vencStr)||new Date();
   const t={lead_id:l.id,numero:'AV-'+String(Date.now()).slice(-5),referencia:ref,tipo:'Título',emissao:today(),vencimento:d.toISOString().slice(0,10),valor:valor,valor_recebido:0,criado_em:new Date().toISOString()};
   try{ const r=await api('titulos',{method:'POST',body:JSON.stringify(t)}); state.titulos=state.titulos||[]; state.titulos.unshift(Array.isArray(r)?r[0]:t); showToast('Título lançado ✓','ok',2200); renderFinanceiro(); }catch(e){ showToast('Erro ao lançar','error',3000); }
+}
+
+
+// ═══════════════════════════════════════════════
+// FUSÃO — EXCLUSÃO (com confirmação, um de cada vez)
+// ═══════════════════════════════════════════════
+async function excluirProcesso(id){
+  const p=(state.processos||[]).find(x=>String(x.id)===String(id)); if(!p) return;
+  const nome=leadById(p.lead_id).nome;
+  if(!confirm('Excluir o processo de '+nome+'?\n\nIsso apaga o processo, a timeline, os honorários e TODAS as parcelas geradas. Não pode ser desfeito.')) return;
+  try{
+    await api('titulos?processo_id=eq.'+id,{method:'DELETE'});
+    await api('honorarios?processo_id=eq.'+id,{method:'DELETE'});
+    await api('andamentos?processo_id=eq.'+id,{method:'DELETE'});
+    await api('processos?id=eq.'+id,{method:'DELETE'});
+    state.processos=(state.processos||[]).filter(x=>String(x.id)!==String(id));
+    state.titulos=(state.titulos||[]).filter(t=>String(t.processo_id)!==String(id));
+    state.honorarios=(state.honorarios||[]).filter(h=>String(h.processo_id)!==String(id));
+    state.andamentos=(state.andamentos||[]).filter(a=>String(a.processo_id)!==String(id));
+    openProcId=null; showToast('Processo excluído ✓','ok',2200); renderProcessos();
+  }catch(e){ showToast('Erro ao excluir','error',3000); }
+}
+async function excluirTitulo(id){
+  const t=(state.titulos||[]).find(x=>String(x.id)===String(id)); if(!t) return;
+  if(!confirm('Excluir o título '+(t.numero||'')+' ('+money(t.valor)+')?\n\nNão pode ser desfeito.')) return;
+  try{
+    await api('titulos?id=eq.'+id,{method:'DELETE'});
+    state.titulos=(state.titulos||[]).filter(x=>String(x.id)!==String(id));
+    showToast('Título excluído ✓','ok',2000);
+    if(openProcId) renderProcDetalhe(openProcId); else renderFinanceiro();
+  }catch(e){ showToast('Erro ao excluir','error',3000); }
 }
 
 </script>
