@@ -999,6 +999,7 @@ async function loadAll() {
     state.processos  = await api('processos?select=*&order=criado_em.desc').catch(()=>[]);
     state.titulos    = await api('titulos?select=*&order=criado_em.desc').catch(()=>[]);
     state.andamentos = await api('andamentos?select=*&order=criado_em.desc').catch(()=>[]);
+    state.honorarios = await api('honorarios?select=*').catch(()=>[]);
     showToast('Sincronizado ✓', 'ok', 2000);
     updateLastSync();
   } catch(e) {
@@ -2378,7 +2379,8 @@ function renderProcDetalhe(id){
     + '</div></div>'
     + '<div class="table-wrap" style="margin-top:14px"><div class="table-header"><div class="table-header-title">Timeline</div><button class="btn btn-primary btn-sm" onclick="addAndamento('+p.id+')">+ Andamento</button></div><div style="padding:16px">'
     + (tl.length ? tl.map(a=>'<div style="border-left:2px solid var(--gold);padding:2px 0 14px 14px;margin-left:6px"><div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px"><b style="color:var(--gold)">'+esc(a.categoria||'ANDAMENTO')+'</b> · '+(a.criado_em?fmt(String(a.criado_em).slice(0,10)):'')+' · '+(a.autor||'')+'</div><div style="font-size:13px;line-height:1.6;white-space:pre-line">'+esc(a.texto)+'</div></div>').join('') : '<div style="text-align:center;color:var(--text-dim);padding:24px">Sem andamentos ainda.</div>')
-    + '</div></div>';
+    + '</div></div>'
+    + honSection(p);
 }
 async function setAndamento(id,val){
   const p=state.processos.find(x=>String(x.id)===String(id)); p.andamento=val;
@@ -2424,7 +2426,7 @@ function renderFinanceiro(){
     + '<div class="stat-card green"><div class="stat-label">Recebido</div><div class="stat-value">'+money(totR)+'</div></div>'
     + '<div class="stat-card orange"><div class="stat-label">Vencidos</div><div class="stat-value">'+vencidos.length+'</div><div class="stat-sub">precisam de cobrança</div></div>'
     + '<div class="stat-card gold"><div class="stat-label">Total emitido</div><div class="stat-value">'+money(totV)+'</div></div></div>'
-    + '<div class="table-wrap"><div class="table-header"><div class="table-header-title">Títulos a Receber</div></div>'
+    + '<div class="table-wrap"><div class="table-header"><div class="table-header-title">Títulos a Receber</div><button class="btn btn-primary btn-sm" onclick="novoTitulo()">+ Novo Título</button></div>'
     + '<table><thead><tr><th>Número</th><th>Referência</th><th>Cliente</th><th>Vencimento</th><th>Valor</th><th>Resta</th><th></th></tr></thead><tbody>'
     + (tit.length ? tit.map(t=>{ const resta=(+t.valor||0)-(+t.valor_recebido||0); const dd=daysTo(t.vencimento); const over=resta>0&&dd<0;
         return '<tr'+(over?' style="background:rgba(224,85,85,0.08)"':'')+'><td style="color:var(--text-dim)">'+esc(t.numero||'—')+'</td><td>'+esc(t.referencia||'—')+'</td><td style="font-weight:600">'+esc(leadById(t.lead_id).nome)+'</td><td>'+fmt(t.vencimento)+'<div style="font-size:11px;color:var(--text-dim)">'+(resta<=0?'quitado':dd<0?('venceu há '+(-dd)+'d'):('vence em '+dd+'d'))+'</div></td><td>'+money(t.valor)+'</td><td style="font-weight:700">'+money(resta)+'</td><td>'+(resta>0?'<button class="btn btn-primary btn-sm" onclick="quitar(\''+t.id+'\')">Quitar</button>':'<span class="badge badge-fechado">✓ pago</span>')+'</td></tr>';
@@ -2434,6 +2436,74 @@ function renderFinanceiro(){
 async function quitar(id){
   const t=state.titulos.find(x=>String(x.id)===String(id)); if(!t) return; t.valor_recebido=t.valor;
   try{ await api('titulos?id=eq.'+id,{method:'PATCH',body:JSON.stringify({valor_recebido:t.valor})}); showToast('Título quitado ✓','ok',1800); renderFinanceiro();}catch(e){showToast('Erro ao salvar','error',2500);}
+}
+
+
+// ═══════════════════════════════════════════════
+// FUSÃO — LANÇAMENTO FINANCEIRO (honorário -> parcelas)
+// ═══════════════════════════════════════════════
+function parseDateBR(s){ if(!s) return null; const m=String(s).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/); if(!m) return null; const d=new Date(+m[3],+m[2]-1,+m[1]); return isNaN(d.getTime())?null:d; }
+
+function honSection(p){
+  const hon=(state.honorarios||[]).filter(h=>String(h.processo_id)===String(p.id));
+  const tit=(state.titulos||[]).filter(t=>String(t.processo_id)===String(p.id));
+  const totalHon=hon.reduce((s,h)=>s+(+h.valor||0),0);
+  const recebido=tit.reduce((s,t)=>s+(+t.valor_recebido||0),0);
+  let html='<div class="table-wrap" style="margin-top:14px"><div class="table-header"><div class="table-header-title">Honorários & Cobranças</div><button class="btn btn-primary btn-sm" onclick="lancarHonorario('+p.id+')">+ Lançar Honorário</button></div><div style="padding:16px">';
+  if(!hon.length && !tit.length){
+    html+='<div style="text-align:center;color:var(--text-dim);padding:20px">Nenhum honorário lançado. Clique em "Lançar Honorário" para gerar as cobranças no Financeiro.</div>';
+  } else {
+    if(hon.length) html+='<div style="margin-bottom:12px">'+hon.map(h=>'<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border2)"><span>'+esc(h.descricao||'Honorário')+'</span><b style="color:var(--gold)">'+money(h.valor)+'</b></div>').join('')+'</div>';
+    if(tit.length){
+      html+='<div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.5px;margin:12px 0 6px">Parcelas geradas</div>';
+      html+=tit.slice().sort((a,b)=>String(a.vencimento||'').localeCompare(String(b.vencimento||''))).map(t=>{
+        const resta=(+t.valor||0)-(+t.valor_recebido||0);
+        return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border2)"><span style="font-size:13px">'+esc(t.numero||'')+' · venc. '+fmt(t.vencimento)+'</span><span style="display:flex;gap:10px;align-items:center">'+money(t.valor)+(resta<=0?' <span class="badge badge-fechado">pago</span>':' <button class="btn btn-primary btn-sm" onclick="quitar(\''+t.id+'\')">Quitar</button>')+'</span></div>';
+      }).join('');
+      html+='<div style="display:flex;justify-content:space-between;margin-top:14px;font-weight:700"><span>Total: '+money(totalHon)+'</span><span style="color:var(--green)">Recebido: '+money(recebido)+'</span></div>';
+    }
+  }
+  html+='</div></div>';
+  return html;
+}
+
+async function lancarHonorario(procId){
+  const p=(state.processos||[]).find(x=>String(x.id)===String(procId)); if(!p) return;
+  const desc=prompt('Descrição do honorário\n(ex.: Diligência Inicial, Honorários de Êxito):'); if(!desc) return;
+  const vStr=prompt('Valor TOTAL do honorário (R$):\nex.: 300   ou   2500,00'); if(vStr===null) return;
+  const valor=parseFloat(String(vStr).replace(/\./g,'').replace(',','.'));
+  if(isNaN(valor)||valor<=0){ showToast('Valor inválido','error',2600); return; }
+  const npStr=prompt('Em quantas parcelas? (1 = à vista)','1'); if(npStr===null) return;
+  const nparc=Math.max(1,parseInt(npStr,10)||1);
+  const vencStr=prompt('Vencimento da 1ª parcela (dd/mm/aaaa):\n(vazio = hoje)','');
+  const base=parseDateBR(vencStr)||new Date();
+  try{
+    await api('honorarios',{method:'POST',body:JSON.stringify({processo_id:procId,descricao:desc,valor:valor})});
+    state.honorarios=state.honorarios||[]; state.honorarios.push({processo_id:procId,descricao:desc,valor:valor});
+    const parc=Math.floor((valor/nparc)*100)/100;
+    for(let i=0;i<nparc;i++){
+      const d=new Date(base.getFullYear(),base.getMonth()+i,base.getDate());
+      const v=(i===nparc-1)?Math.round((valor-parc*(nparc-1))*100)/100:parc;
+      const t={lead_id:p.lead_id,processo_id:procId,numero:procId+'/'+(i+1)+'-'+nparc,referencia:desc,tipo:'Título',emissao:today(),vencimento:d.toISOString().slice(0,10),valor:v,valor_recebido:0,criado_em:new Date().toISOString()};
+      const r=await api('titulos',{method:'POST',body:JSON.stringify(t)});
+      state.titulos=state.titulos||[]; state.titulos.unshift(Array.isArray(r)?r[0]:t);
+    }
+    showToast(nparc+' parcela(s) gerada(s) ✓','ok',2600); renderProcDetalhe(procId);
+  }catch(e){ showToast('Erro ao lançar (rode a migração)','error',3500); }
+}
+
+async function novoTitulo(){
+  const termo=prompt('Novo título para qual cliente?\nDigite parte do nome:'); if(!termo) return;
+  const matches=state.leads.filter(l=>(l.nome||'').toLowerCase().includes(termo.toLowerCase())).slice(0,15);
+  if(!matches.length){ showToast('Cliente não encontrado','syncing',2600); return; }
+  const pick=prompt('Escolha o cliente:\n\n'+matches.map((l,i)=>(i+1)+'. '+l.nome).join('\n')+'\n\nDigite o número:');
+  const l=matches[parseInt(pick,10)-1]; if(!l) return;
+  const ref=prompt('Referência (ex.: Consulta avulsa):')||'Avulso';
+  const vStr=prompt('Valor (R$):'); if(vStr===null) return;
+  const valor=parseFloat(String(vStr).replace(/\./g,'').replace(',','.')); if(isNaN(valor)||valor<=0){showToast('Valor inválido','error',2600);return;}
+  const vencStr=prompt('Vencimento (dd/mm/aaaa):\n(vazio = hoje)',''); const d=parseDateBR(vencStr)||new Date();
+  const t={lead_id:l.id,numero:'AV-'+String(Date.now()).slice(-5),referencia:ref,tipo:'Título',emissao:today(),vencimento:d.toISOString().slice(0,10),valor:valor,valor_recebido:0,criado_em:new Date().toISOString()};
+  try{ const r=await api('titulos',{method:'POST',body:JSON.stringify(t)}); state.titulos=state.titulos||[]; state.titulos.unshift(Array.isArray(r)?r[0]:t); showToast('Título lançado ✓','ok',2200); renderFinanceiro(); }catch(e){ showToast('Erro ao lançar','error',3000); }
 }
 
 </script>
