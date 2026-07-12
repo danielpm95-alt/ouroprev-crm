@@ -898,31 +898,42 @@ body.capturing #scripts-protected{filter:blur(12px) brightness(0.3)!important;}
 // ═══════════════════════════════════════════════
 const SUPABASE_URL = 'https://tvnfscvmaxkyjqqhmowt.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_ayLQ4gfjtvm3TlFtr7lLZg_b5FPdc2O';
+let authToken = null; // JWT da sessão do Supabase Auth (preenchido no login)
 
 const api = (path, opts={}) => fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
-  headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation', ...opts.headers },
+  headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${authToken || SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation', ...opts.headers },
   ...opts
 }).then(r => r.ok ? r.json() : r.json().then(e => { throw e; }));
 
 // ═══════════════════════════════════════════════
 // AUTENTICAÇÃO (local, dois níveis)
 // ═══════════════════════════════════════════════
-const USERS = {
-  'admin':    { senha: 'ouroprev2025', role: 'admin',    nome: 'Daniel (Admin)' },
-  'operador': { senha: 'escritorio',   role: 'operador', nome: 'Funcionária'    },
-};
 let currentUser = null;
+// aliases: permite digitar "admin" ou "jamille" em vez do email completo
+const EMAIL_ALIAS = { 'admin':'admin@ouroprev.com.br', 'operador':'jamille@ouroprev.com.br', 'jamille':'jamille@ouroprev.com.br' };
 
-function doLogin() {
-  const u = document.getElementById('login-user').value.trim().toLowerCase();
-  const p = document.getElementById('login-pass').value;
-  if (USERS[u] && USERS[u].senha === p) {
-    currentUser = { ...USERS[u], username: u };
+async function doLogin() {
+  const raw = document.getElementById('login-user').value.trim().toLowerCase();
+  const email = raw.includes('@') ? raw : (EMAIL_ALIAS[raw] || raw);
+  const senha = document.getElementById('login-pass').value;
+  const errEl = document.getElementById('login-error');
+  if (errEl) errEl.style.display = 'none';
+  try {
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+      method: 'POST',
+      headers: { 'apikey': SUPABASE_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password: senha })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.access_token) throw new Error((data && data.error_description) || 'Login inválido');
+    authToken = data.access_token;
+    const papel = (data.user && data.user.app_metadata && data.user.app_metadata.papel) || 'operador';
+    currentUser = { role: papel, nome: papel === 'admin' ? 'Daniel (Admin)' : 'Jamille (Operador)', email: email };
     document.getElementById('login-screen').classList.remove('show');
     applyRole();
     init();
-  } else {
-    document.getElementById('login-error').style.display = 'block';
+  } catch (e) {
+    if (errEl) { errEl.style.display = 'block'; errEl.textContent = 'Email ou senha inválidos.'; }
   }
 }
 
@@ -934,7 +945,7 @@ function applyRole() {
   logoutBtn.className = 'btn btn-ghost btn-sm';
   logoutBtn.style.cssText = 'margin-top:6px;width:100%;font-size:11px';
   logoutBtn.textContent = '🚪 Sair';
-  logoutBtn.onclick = () => { currentUser = null; location.reload(); };
+  logoutBtn.onclick = () => { authToken = null; currentUser = null; location.reload(); };
   document.getElementById('user-info').appendChild(logoutBtn);
 }
 
