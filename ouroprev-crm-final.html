@@ -371,8 +371,9 @@ body.capturing #scripts-protected{filter:blur(12px) brightness(0.3)!important;}
       <div class="nav-item admin-only" onclick="navigate('orientacoes')"><span class="icon">📌</span> Orientações</div>
       <div class="nav-item admin-only" onclick="navigate('importar')"><span class="icon">⬆️</span> Importar</div>
       <div class="nav-item" onclick="navigate('campanhas')"><span class="icon">📣</span> Campanhas</div>
+      <div class="nav-item admin-only" onclick="navigate('painel')"><span class="icon">🎯</span> Painel do Dono</div>
       <div class="nav-item" onclick="navigate('processos')"><span class="icon">💼</span> Processos</div>
-      <div class="nav-item admin-only" onclick="navigate('financeiro')"><span class="icon">💰</span> Financeiro</div>
+      <div class="nav-item" onclick="navigate('financeiro')"><span class="icon">💰</span> Financeiro</div>
     </nav>
     <div class="sidebar-footer">
       <div>Ouro Preto, MG</div>
@@ -880,6 +881,7 @@ body.capturing #scripts-protected{filter:blur(12px) brightness(0.3)!important;}
 </div>
 
 
+<div id="view-painel" class="view"><div id="painel-content"></div></div>
 <div id="view-processos" class="view">
   <div style="display:flex;gap:10px;margin-bottom:16px;align-items:center;flex-wrap:wrap">
     <input class="search-input" id="proc-search" placeholder="Buscar por cliente..." oninput="renderProcessos()">
@@ -1039,7 +1041,7 @@ navigate = function(view) {
   state.currentView = view;
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
   document.querySelectorAll('.view').forEach(el => el.classList.remove('active'));
-  const titles = { dashboard:'Dashboard', processos:'Processos', financeiro:'Financeiro', leads:'Leads & Clientes', pipeline:'Pipeline', historico:'Histórico de Contatos', tarefas:'Tarefas', calculadoras:'Calculadoras', orientacoes:'Orientações para Equipe', importar:'Importar Contatos' };
+  const titles = { dashboard:'Dashboard', painel:'Painel do Dono', processos:'Processos', financeiro:'Financeiro', leads:'Leads & Clientes', pipeline:'Pipeline', historico:'Histórico de Contatos', tarefas:'Tarefas', calculadoras:'Calculadoras', orientacoes:'Orientações para Equipe', importar:'Importar Contatos' };
   document.getElementById('topbar-title').textContent = titles[view] || view;
   document.querySelectorAll('.nav-item').forEach(el => { if (el.getAttribute('onclick')?.includes(`'${view}'`)) el.classList.add('active'); });
   document.getElementById('view-'+view)?.classList.add('active');
@@ -1055,6 +1057,7 @@ function renderView() {
   if (v === 'historico') renderHistorico();
   if (v === 'orientacoes') renderOrientacoes();
   if (v === 'scripts') renderScriptsPage();
+  if (v === 'painel') renderPainel();
   if (v === 'processos') renderProcessos();
   if (v === 'financeiro') renderFinanceiro();
 }
@@ -2546,6 +2549,141 @@ async function excluirTitulo(id){
     showToast('Título excluído ✓','ok',2000);
     if(openProcId) renderProcDetalhe(openProcId); else renderFinanceiro();
   }catch(e){ showToast('Erro ao excluir','error',3000); }
+}
+
+
+// ═══════════════════════════════════════════════
+// PAINEL DO DONO — gráficos (caixa · funil · atividade)
+// ═══════════════════════════════════════════════
+function renderPainel(){
+  const box=document.getElementById('painel-content'); if(!box) return;
+  if(!currentUser || currentUser.role!=='admin'){ box.innerHTML='<div class="table-wrap" style="padding:40px;text-align:center;color:var(--text-dim)">Acesso restrito ao administrador.</div>'; return; }
+
+  const tit=state.titulos||[], leads=state.leads||[], procs=state.processos||[], hist=state.historico||[], ands=state.andamentos||[];
+  const GOLD='#C9A84C', GREEN='#4caf82', RED='#e05555', DIM='#8892b0', LINE='rgba(255,255,255,0.07)';
+  const hoje=new Date(new Date().toDateString());
+  const mesNome=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+
+  // ─────────── 1) CAIXA: entrada projetada por mês (6 meses) ───────────
+  const meses=[];
+  for(let i=0;i<6;i++){ const d=new Date(hoje.getFullYear(),hoje.getMonth()+i,1); meses.push({k:d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'), label:mesNome[d.getMonth()]+'/'+String(d.getFullYear()).slice(2), aReceber:0, recebido:0}); }
+  tit.forEach(t=>{
+    if(!t.vencimento) return;
+    const k=String(t.vencimento).slice(0,7);
+    const m=meses.find(x=>x.k===k); if(!m) return;
+    const resta=(+t.valor||0)-(+t.valor_recebido||0);
+    m.aReceber += resta>0?resta:0;
+    m.recebido += (+t.valor_recebido||0);
+  });
+  const maxCaixa=Math.max(1,...meses.map(m=>m.aReceber+m.recebido));
+  const vencidos=tit.filter(t=>((+t.valor||0)-(+t.valor_recebido||0))>0 && daysTo(t.vencimento)<0);
+  const totVenc=vencidos.reduce((s,t)=>s+((+t.valor||0)-(+t.valor_recebido||0)),0);
+  const totAberto=tit.reduce((s,t)=>s+Math.max(0,(+t.valor||0)-(+t.valor_recebido||0)),0);
+  const totRecebido=tit.reduce((s,t)=>s+(+t.valor_recebido||0),0);
+
+  // SVG barras de caixa
+  const W=680,H=220,PL=58,PB=28,PT=14;
+  const bw=(W-PL-14)/meses.length;
+  let caixaSVG='<svg viewBox="0 0 '+W+' '+H+'" style="width:100%;height:auto">';
+  for(let g=0;g<=3;g++){ const y=PT+(H-PT-PB)*(g/3); const v=maxCaixa*(1-g/3);
+    caixaSVG+='<line x1="'+PL+'" y1="'+y+'" x2="'+(W-6)+'" y2="'+y+'" stroke="'+LINE+'"/>';
+    caixaSVG+='<text x="'+(PL-8)+'" y="'+(y+4)+'" fill="'+DIM+'" font-size="9.5" text-anchor="end">'+(v>=1000?(v/1000).toFixed(1)+'k':Math.round(v))+'</text>';
+  }
+  meses.forEach((m,i)=>{
+    const x=PL+i*bw+bw*0.22, w=bw*0.56;
+    const hR=(H-PT-PB)*(m.recebido/maxCaixa), hA=(H-PT-PB)*(m.aReceber/maxCaixa);
+    const yA=H-PB-hA-hR, yR=H-PB-hR;
+    if(hA>0) caixaSVG+='<rect x="'+x+'" y="'+yA+'" width="'+w+'" height="'+hA+'" fill="'+GOLD+'" rx="3"><title>A receber: '+money(m.aReceber)+'</title></rect>';
+    if(hR>0) caixaSVG+='<rect x="'+x+'" y="'+yR+'" width="'+w+'" height="'+hR+'" fill="'+GREEN+'" rx="3"><title>Recebido: '+money(m.recebido)+'</title></rect>';
+    if(m.aReceber+m.recebido>0) caixaSVG+='<text x="'+(x+w/2)+'" y="'+(yA-5)+'" fill="#e8eaf0" font-size="9.5" text-anchor="middle">'+((m.aReceber+m.recebido)>=1000?((m.aReceber+m.recebido)/1000).toFixed(1)+'k':Math.round(m.aReceber+m.recebido))+'</text>';
+    caixaSVG+='<text x="'+(x+w/2)+'" y="'+(H-9)+'" fill="'+DIM+'" font-size="10" text-anchor="middle">'+m.label+'</text>';
+  });
+  caixaSVG+='</svg>';
+
+  // ─────────── 2) FUNIL ───────────
+  const etapas=[
+    {n:'Novo Lead',    v:leads.filter(l=>l.status==='Novo Lead').length},
+    {n:'Em Contato',   v:leads.filter(l=>l.status==='Em Contato').length},
+    {n:'Em Análise',   v:leads.filter(l=>l.status==='Em Análise').length},
+    {n:'Agendado',     v:leads.filter(l=>l.status==='Agendado').length},
+    {n:'Proposta',     v:leads.filter(l=>l.status==='Proposta Enviada').length},
+    {n:'Negociação',   v:leads.filter(l=>l.status==='Em negociação').length},
+    {n:'Virou processo', v:procs.length},
+  ];
+  const perdidos=leads.filter(l=>l.status==='Perdido').length;
+  const maxF=Math.max(1,...etapas.map(e=>e.v));
+  const FW=680, rowH=34, FH=etapas.length*rowH+16;
+  let funilSVG='<svg viewBox="0 0 '+FW+' '+FH+'" style="width:100%;height:auto">';
+  etapas.forEach((e,i)=>{
+    const y=i*rowH+10, bw2=(FW-190)*(e.v/maxF), fim=i===etapas.length-1;
+    funilSVG+='<text x="0" y="'+(y+15)+'" fill="#e8eaf0" font-size="12">'+e.n+'</text>';
+    funilSVG+='<rect x="120" y="'+y+'" width="'+Math.max(2,bw2)+'" height="20" rx="4" fill="'+(fim?GREEN:GOLD)+'" opacity="'+(fim?1:(0.45+0.55*(e.v/maxF)))+'"/>';
+    funilSVG+='<text x="'+(126+Math.max(2,bw2))+'" y="'+(y+15)+'" fill="'+DIM+'" font-size="11.5">'+e.v+'</text>';
+  });
+  funilSVG+='</svg>';
+  const taxaConv=leads.length? (procs.length/leads.length*100) : 0;
+  const taxaPerda=leads.length? (perdidos/leads.length*100) : 0;
+
+  // ─────────── 3) ATIVIDADE: volume por semana (8 semanas) ───────────
+  const sem=[];
+  for(let i=7;i>=0;i--){ const fim=new Date(hoje.getTime()-i*7*86400000); const ini=new Date(fim.getTime()-6*86400000); sem.push({ini,fim,label:String(fim.getDate()).padStart(2,'0')+'/'+mesNome[fim.getMonth()],n:0}); }
+  const eventos=[].concat(
+    hist.map(h=>h.created||h.date),
+    ands.map(a=>a.criado_em),
+    procs.map(p=>p.criado_em||p.data_abertura)
+  ).filter(Boolean).map(d=>new Date(d));
+  eventos.forEach(d=>{ const s=sem.find(x=>d>=x.ini && d<=new Date(x.fim.getTime()+86399000)); if(s) s.n++; });
+  const maxS=Math.max(1,...sem.map(s=>s.n));
+  const AW=680,AH=170,APB=26,APT=12,APL=30;
+  let ativSVG='<svg viewBox="0 0 '+AW+' '+AH+'" style="width:100%;height:auto">';
+  const stepX=(AW-APL-12)/(sem.length-1);
+  const pts=sem.map((s,i)=>[APL+i*stepX, AH-APB-(AH-APT-APB)*(s.n/maxS)]);
+  ativSVG+='<polyline points="'+pts.map(p=>p[0]+','+p[1]).join(' ')+'" fill="none" stroke="'+GOLD+'" stroke-width="2.5" stroke-linejoin="round"/>';
+  ativSVG+='<polygon points="'+APL+','+(AH-APB)+' '+pts.map(p=>p[0]+','+p[1]).join(' ')+' '+(APL+(sem.length-1)*stepX)+','+(AH-APB)+'" fill="'+GOLD+'" opacity="0.12"/>';
+  pts.forEach((p,i)=>{
+    ativSVG+='<circle cx="'+p[0]+'" cy="'+p[1]+'" r="3.5" fill="'+GOLD+'"><title>'+sem[i].n+' registro(s)</title></circle>';
+    ativSVG+='<text x="'+p[0]+'" y="'+(AH-8)+'" fill="'+DIM+'" font-size="9.5" text-anchor="middle">'+sem[i].label+'</text>';
+    if(sem[i].n>0) ativSVG+='<text x="'+p[0]+'" y="'+(p[1]-8)+'" fill="#e8eaf0" font-size="10" text-anchor="middle">'+sem[i].n+'</text>';
+  });
+  ativSVG+='</svg>';
+  const total8=sem.reduce((s,x)=>s+x.n,0);
+  const ult7=sem[sem.length-1].n, ant7=sem[sem.length-2]?sem[sem.length-2].n:0;
+  const varia=ant7? ((ult7-ant7)/ant7*100) : 0;
+
+  // processos parados
+  const procAtivos=procs.filter(p=>!p.concluido);
+  const parados=procAtivos.filter(p=>{
+    const a=ands.filter(x=>String(x.processo_id)===String(p.id));
+    if(!a.length) return true;
+    const ult=a.map(x=>new Date(x.criado_em||0)).sort((x,y)=>y-x)[0];
+    return (hoje-ult)/86400000>15;
+  });
+
+  const painel=(titulo,sub,corpo,extra)=>'<div class="table-wrap" style="margin-bottom:16px"><div class="table-header"><div><div class="table-header-title">'+titulo+'</div><div style="font-size:11.5px;color:var(--text-dim);margin-top:2px">'+sub+'</div></div>'+(extra||'')+'</div><div style="padding:16px">'+corpo+'</div></div>';
+  const leg=(cor,txt)=>'<span style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--text-dim);margin-left:12px"><span style="width:9px;height:9px;border-radius:2px;background:'+cor+'"></span>'+txt+'</span>';
+  const kpi=(l,v,c)=>'<div style="text-align:right"><div style="font-size:10.5px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.05em">'+l+'</div><div style="font-size:17px;font-weight:700;color:'+(c||'#e8eaf0')+'">'+v+'</div></div>';
+
+  let html='';
+
+  html+=painel('💰 Caixa — entrada projetada', 'próximos 6 meses · dourado = a receber · verde = já recebido',
+    caixaSVG + '<div style="margin-top:10px;display:flex;justify-content:flex-end">'+leg(GOLD,'A receber')+leg(GREEN,'Recebido')+'</div>',
+    '<div style="margin-left:auto;display:flex;gap:22px">'+kpi('A receber',money(totAberto),GOLD)+kpi('Recebido',money(totRecebido),GREEN)+kpi('Vencido',money(totVenc),totVenc>0?RED:DIM)+'</div>');
+
+  html+=painel('📊 Funil de conversão', leads.length+' leads na base · '+procs.length+' viraram processo',
+    funilSVG,
+    '<div style="margin-left:auto;display:flex;gap:22px">'+kpi('Conversão',taxaConv.toFixed(1)+'%',GREEN)+kpi('Perda',taxaPerda.toFixed(1)+'%',RED)+'</div>');
+
+  html+=painel('📋 Atividade da operação', total8+' registros nas últimas 8 semanas',
+    ativSVG,
+    '<div style="margin-left:auto;display:flex;gap:22px">'+kpi('Esta semana',ult7,GOLD)+kpi('vs. anterior',(varia>=0?'+':'')+varia.toFixed(0)+'%',varia>=0?GREEN:RED)+kpi('Parados',parados.length,parados.length?RED:DIM)+'</div>');
+
+  html+='<div style="padding:12px 15px;border:1px solid var(--border);border-left:3px solid var(--gold);border-radius:8px;font-size:12.5px;color:var(--text-dim);line-height:1.6">'
+    + '<b style="color:var(--text)">Duas leituras honestas deste painel:</b><br>'
+    + '• <b>Saídas não aparecem</b> porque o sistema ainda não tem contas a pagar — só o que entra. O gráfico de caixa é entrada projetada, não lucro.<br>'
+    + '• <b>A atividade não é separada por pessoa</b> — os registros não gravam autor. Para saber o que é teu e o que é da Jamille, é preciso passar a gravar o autor daqui pra frente.'
+    + '</div>';
+
+  box.innerHTML=html;
 }
 
 </script>
